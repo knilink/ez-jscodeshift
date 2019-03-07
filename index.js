@@ -37,11 +37,11 @@ function bindCustomMatcher(types, matcher, path) {
   }
 
   if (isObject.check(matcher)) {
-    const childNames = types.getFieldNames(matcher);
-    return childNames.reduce(
-      (result, childName) => [...result, ...bindCustomMatcher(types, matcher[childName], [...path, childName])],
-      []
-    );
+    let result = [];
+    for (const childName in matcher) {
+      result = [...result, ...bindCustomMatcher(types, matcher[childName], [...path, childName])];
+    }
+    return result;
   }
   return [];
 }
@@ -231,8 +231,6 @@ var mutationMethods = {
     });
   },
 };
-
-var j = require('jscodeshift');
 
 function wrap(j) {
   function core(source, options) {
