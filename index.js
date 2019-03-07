@@ -71,14 +71,17 @@ function bindSource(types, ast, bindings = {}, path = []) {
     };
   }
 
-  if (types.namedTypes.Identifier.check(ast) && ast.name in bindings) {
+  const bindingName =
+    (types.namedTypes.Identifier.check(ast) && ast.name) ||
+    (types.namedTypes.BlockStatement.check(ast) && ast.innerComments[0].value);
+  if (bindingName in bindings) {
     return {
-      matcher: bindings[ast.name].matcher,
+      matcher: bindings[bindingName].matcher,
       bindings: {
         ...bindingsRes,
-        [ast.name]: {
+        [bindingName]: {
           srcPath: path,
-          ...bindings[ast.name],
+          ...bindings[bindingName],
         },
       },
     };
@@ -117,13 +120,16 @@ function bindDst(types, ast, bindings = {}, path = []) {
     };
   }
 
-  if (types.namedTypes.Identifier.check(ast) && ast.name in bindings) {
+  const bindingName =
+    (types.namedTypes.Identifier.check(ast) && ast.name) ||
+    (types.namedTypes.BlockStatement.check(ast) && ast.innerComments[0].value);
+  if (bindingName in bindings) {
     return {
       bindings: {
         ...bindingsRes,
-        [ast.name]: {
-          ...bindings[ast.name],
-          dstPaths: [...(bindings[ast.name].dstPaths || []), path],
+        [bindingName]: {
+          ...bindings[bindingName],
+          dstPaths: [...(bindings[bindingName].dstPaths || []), path],
         },
       },
     };
@@ -147,9 +153,16 @@ var traversalMethods = {
     let source = code[0];
     for (const i in args) {
       const [name, customMatcher] = j.types.builtInTypes.array.check(args[i]) ? args[i] : [args[i]];
-      bindings[name] = { matcher: customMatcher };
-      source += name + code[+i + 1];
+      if (name[0] === '{' && name[name.length - 1] === '}') {
+        const blockName = name.slice(1, -1);
+        bindings[blockName] = { matcher: customMatcher };
+        source += `{/*${blockName}*/}` + code[+i + 1];
+      } else {
+        bindings[name] = { matcher: customMatcher };
+        source += name + code[+i + 1];
+      }
     }
+
     let _ast = j(source, options).get().value.program.body[0];
     if (_ast.type === 'ExpressionStatement') {
       _ast = _ast.expression;
@@ -174,21 +187,27 @@ var mutationMethods = {
     const { options, bindings } = this.__ezContext;
     const j = this.__ezContext.getJ();
     const isFunction = j.types.builtInTypes.function;
+    const isArray = j.types.builtInTypes.array;
 
     let targetBindings = {};
     let targetSourceCode = code[0];
     for (const i in args) {
-      if (isFunction.check(args[i])) {
-        const name = randVarName();
-        targetBindings[name] = {
-          setter: args[i],
-        };
-        targetSourceCode += name + code[+i + 1];
+      const [name, setter] = isArray.check(args[i])
+        ? args[i]
+        : isFunction.check(args[i])
+        ? [randVarName(), args[i]]
+        : [args[i]];
+
+      if (name[0] === '{' && name[name.length - 1] === '}') {
+        const blockName = name.slice(1, -1);
+        targetBindings[blockName] = { setter };
+        targetSourceCode += `{/*${blockName}*/}` + code[+i + 1];
       } else {
-        targetBindings[args[i]] = {};
-        targetSourceCode += args[i] + code[+i + 1];
+        targetBindings[name] = { setter };
+        targetSourceCode += name + code[+i + 1];
       }
     }
+
     return this.replaceWith((path) => {
       const targetAst = j(targetSourceCode, options).get().value.program.body[0];
       targetBindings = bindDst(j.types, targetAst, targetBindings).bindings;
