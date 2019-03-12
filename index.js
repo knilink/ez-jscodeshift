@@ -73,7 +73,9 @@ function bindSource(types, ast, bindings = {}, path = []) {
 
   const bindingName =
     (types.namedTypes.Identifier.check(ast) && ast.name) ||
-    (types.namedTypes.BlockStatement.check(ast) && ast.innerComments[0].value);
+    (types.namedTypes.BlockStatement.check(ast) && ast.innerComments[0].value) ||
+    (types.namedTypes.TemplateLiteral.check(ast) && ast.quasis[0].value.raw);
+
   if (bindingName in bindings) {
     return {
       matcher: bindings[bindingName].matcher,
@@ -122,7 +124,9 @@ function bindDst(types, ast, bindings = {}, path = []) {
 
   const bindingName =
     (types.namedTypes.Identifier.check(ast) && ast.name) ||
-    (types.namedTypes.BlockStatement.check(ast) && ast.innerComments[0].value);
+    (types.namedTypes.BlockStatement.check(ast) && ast.innerComments[0].value) ||
+    (types.namedTypes.TemplateLiteral.check(ast) && ast.quasis[0].value.raw);
+
   if (bindingName in bindings) {
     return {
       bindings: {
@@ -157,6 +161,10 @@ var traversalMethods = {
         const blockName = name.slice(1, -1);
         bindings[blockName] = { matcher: customMatcher };
         source += `{/*${blockName}*/}` + code[+i + 1];
+      } else if (name[0] === '`' && name[name.length - 1] === '`') {
+        const templateName = name.slice(1, -1);
+        bindings[templateName] = { matcher: customMatcher };
+        source += name + code[+i + 1];
       } else {
         bindings[name] = { matcher: customMatcher };
         source += name + code[+i + 1];
@@ -202,6 +210,10 @@ var mutationMethods = {
         const blockName = name.slice(1, -1);
         targetBindings[blockName] = { setter };
         targetSourceCode += `{/*${blockName}*/}` + code[+i + 1];
+      } else if (name[0] === '`' && name[name.length - 1] === '`') {
+        const templateName = name.slice(1, -1);
+        targetBindings[templateName] = { setter };
+        targetSourceCode += name + code[+i + 1];
       } else {
         targetBindings[name] = { setter };
         targetSourceCode += name + code[+i + 1];
@@ -232,7 +244,6 @@ var mutationMethods = {
           }
         }
       }
-
       for (const i in targetBindings) {
         for (const dstPath of targetBindings[i].dstPaths) {
           if (targetBindings[i].setter) {
