@@ -12,6 +12,9 @@ function get(ast, path) {
 }
 
 function set(ast, path, value) {
+  if (path.length === 0) {
+    return value;
+  }
   let target = ast;
   const _path = path.slice(0, -1);
   const prop = path[path.length - 1];
@@ -20,7 +23,7 @@ function set(ast, path, value) {
     target = target[i];
   }
   target[prop] = value;
-  return true;
+  return ast;
 }
 
 function bindCustomMatcher(types, matcher, path) {
@@ -171,7 +174,7 @@ var traversalMethods = {
       }
     }
 
-    let _ast = j(source, options).get().value.program.body[0];
+    let _ast = j(source, options).get('program', 'body', 0).value;
     if (_ast.type === 'ExpressionStatement') {
       _ast = _ast.expression;
     }
@@ -220,25 +223,33 @@ var mutationMethods = {
       }
     }
 
-    return this.replaceWith((path) => {
-      const targetAst = j(targetSourceCode, options).get().value.program.body[0];
+    const result = this.replaceWith((path) => {
+      let targetAst = j(targetSourceCode, options).get('program', 'body', 0).value;
+      // mark
+      if (targetAst.type === 'ExpressionStatement') {
+        targetAst = targetAst.expression;
+      }
       targetBindings = bindDst(j.types, targetAst, targetBindings).bindings;
 
       const value = path.value;
 
       let bindingResult = {};
-      for (const i in bindings) {
-        bindingResult[i] = {
-          value: get(value, bindings[i].srcPath),
-          ...bindings[i],
-          srcPath: undefined,
-        };
-        if (bindings[i].getters) {
-          for (const getter of bindings[i].getters) {
-            const res = getter.getter(get(bindingResult[i].value, getter.srcPath));
-            if (j.types.builtInTypes.object.check(res)) {
-              for (const j in res) {
-                bindingResult[j] = { value: res[j] };
+      if (value.__ezBindingContext) {
+        bindingResult = value.__ezBindingContext;
+      } else {
+        for (const i in bindings) {
+          bindingResult[i] = {
+            value: path.get(...bindings[i].srcPath).value,
+            ...bindings[i],
+            srcPath: undefined,
+          };
+          if (bindings[i].getters) {
+            for (const getter of bindings[i].getters) {
+              const res = getter.getter(get(bindingResult[i].value, getter.srcPath));
+              if (j.types.builtInTypes.object.check(res)) {
+                for (const j in res) {
+                  bindingResult[j] = { value: res[j] };
+                }
               }
             }
           }
@@ -247,18 +258,26 @@ var mutationMethods = {
       for (const i in targetBindings) {
         for (const dstPath of targetBindings[i].dstPaths) {
           if (targetBindings[i].setter) {
-            const newNode = targetBindings[i].setter(bindingResult);
-            newNode && set(targetAst, dstPath, newNode);
+            const newNode = targetBindings[i].setter(bindingResult, path);
+            if (newNode) {
+              targetAst = set(targetAst, dstPath, newNode);
+            }
           } else if (i in bindingResult) {
-            set(targetAst, dstPath, bindingResult[i].value);
+            targetAst = set(targetAst, dstPath, bindingResult[i].value);
           }
         }
       }
       if (targetAst) {
         targetAst.comments = value.comments;
       }
+      targetAst.__ezBindingContext = bindingResult;
       return targetAst;
     });
+
+    // mark
+    // result.__ezContext = this.__ezContext;
+    result.ezReplaceWith = mutationMethods.ezReplaceWith;
+    return result;
   },
 };
 
